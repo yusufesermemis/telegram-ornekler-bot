@@ -16,7 +16,7 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Merhaba! Bir İngilizce kelime yaz; sana anlamını, çevirisini ve GÜÇLÜ eş anlamlılarını getireyim. 🇹🇷🇬🇧")
+    await update.message.reply_text("Merhaba! Bir İngilizce kelime yaz; sana anlamını, çevirisini ve Güçlü eş anlamlılarını getireyim. 🇹🇷🇬🇧")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:

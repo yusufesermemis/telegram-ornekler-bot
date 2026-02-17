@@ -4,8 +4,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from dotenv import load_dotenv
-from deep_translator import GoogleTranslator
-from gtts import gTTS # Ses kütüphanesi
+from gtts import gTTS
 
 # Loglama
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -13,9 +12,20 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
+# --- ÖZEL ÇEVİRİ FONKSİYONU (MyMemory API #10) ---
+def translate_word(text, source_lang, target_lang):
+    try:
+        url = f"https://api.mymemory.translated.net/get?q={text}&langpair={source_lang}|{target_lang}"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            return response.json()["responseData"]["translatedText"].lower()
+    except:
+        return text
+    return text
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name
-    await update.message.reply_text(f"Merhaba {user_name}! 👋\nKelimeyi yaz, butonlarla hem anlamını öğren hem de sesini dinle! 🔊")
+    await update.message.reply_text(f"Merhaba {user_name}! 👋\nArtık çok daha güçlü bir çeviri motoru kullanıyorum. 🚀")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -24,7 +34,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     word = update.message.text.lower().strip()
     header_text = f"🔎 **Kelime:** {word.capitalize()}"
 
-    # Butonlar: Sesli Dinle butonu eklendi
     keyboard = [
         [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"ceviri|{word}"),
          InlineKeyboardButton("🔊 Sesli Dinle", callback_data=f"ses|{word}")],
@@ -41,70 +50,61 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data.split("|")
     action, word = data[0], data[1]
 
-    # --- SESLİ TELAFFUZ İŞLEMİ (YENİ) ---
     if action == "ses":
         await query.answer("Ses hazırlanıyor... 🎧")
-        try:
-            # Önce kelimeyi İngilizceye çevirelim ki telaffuz İngilizce olsun
-            en_word = GoogleTranslator(source='auto', target='en').translate(word)
-            
-            # Ses dosyasını oluştur
-            tts = gTTS(text=en_word, lang='en')
-            file_name = f"{word}.mp3"
-            tts.save(file_name)
-            
-            # Sesi gönder
-            with open(file_name, 'rb') as audio:
-                await context.bot.send_voice(chat_id=query.message.chat_id, voice=audio)
-            
-            # Geçici dosyayı sil
-            os.remove(file_name)
-        except Exception as e:
-            await context.bot.send_message(chat_id=query.message.chat_id, text="Ses oluşturulurken bir hata oluştu.")
-        return # Ses gönderildikten sonra mesajın güncellenmesine gerek yok
+        # Ses için her zaman İngilizce karşılığını bulalım
+        en_word = translate_word(word, "tr", "en")
+        tts = gTTS(text=en_word, lang='en')
+        file_name = f"{word}.mp3"
+        tts.save(file_name)
+        with open(file_name, 'rb') as audio:
+            await context.bot.send_voice(chat_id=query.message.chat_id, voice=audio)
+        os.remove(file_name)
+        return
 
     await query.answer()
     result_content = ""
 
-    # Diğer API işlemleri için hazırlık
-    try:
-        en_res = GoogleTranslator(source='auto', target='en').translate(word).lower()
-        tr_res = GoogleTranslator(source='auto', target='tr').translate(word).lower()
-    except:
-        en_res, tr_res = word, word
+    # --- AKILLI ÇEVİRİ MANTIĞI ---
+    # Hem Türkçesini hem İngilizcesini çekiyoruz (Garantici yöntem)
+    tr_to_en = translate_word(word, "tr", "en")
+    en_to_tr = translate_word(word, "en", "tr")
 
     if action == "ceviri":
-        result_content = f"🇬🇧 **İngilizce:** {en_res.capitalize()}" if word == tr_res else f"🇹🇷 **Türkçe:** {tr_res.capitalize()}"
-    
+        # Eğer kelime Türkçeyse İngilizcesini, İngilizceyse Türkçesini göster
+        if word == en_to_tr: # Kelime İngilizce ise
+            result_content = f"🇹🇷 **Türkçe Anlamı:** {en_to_tr.capitalize()}"
+        else: # Kelime Türkçe ise
+            result_content = f"🇬🇧 **İngilizce Karşılığı:** {tr_to_en.capitalize()}"
+
     elif action == "tanim" or action == "örnek":
+        # Tanım ve örnek için mutlaka İngilizce kelime lazım
+        search_word = tr_to_en if word != tr_to_en else word
         try:
-            url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{en_res}"
+            url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{search_word}"
             res = requests.get(url, timeout=5)
             if res.status_code == 200:
                 data = res.json()[0]
                 if action == "tanim":
-                    definition = data['meanings'][0]['definitions'][0]['definition']
-                    result_content = f"📖 **Tanım:** {definition}"
+                    result_content = f"📖 **Tanım:** {data['meanings'][0]['definitions'][0]['definition']}"
                 else:
                     example = "Örnek bulunamadı."
                     for m in data.get('meanings', []):
                         for d in m.get('definitions', []):
-                            if d.get('example'):
-                                example = d['example']
-                                break
+                            if d.get('example'): example = d['example']; break
                     result_content = f"📝 **Örnek Cümle:**\n_{example.capitalize()}_"
             else: result_content = "Bilgi bulunamadı."
         except: result_content = "Bağlantı hatası."
 
     elif action == "esanlam":
+        search_word = tr_to_en if word != tr_to_en else word
         try:
-            url = f"https://api.datamuse.com/words?rel_syn={en_res}"
+            url = f"https://api.datamuse.com/words?rel_syn={search_word}"
             res = requests.get(url, timeout=5)
             items = [item['word'] for item in res.json()[:5]]
             result_content = f"🔗 **Eş Anlamlılar:** _{', '.join(items)}_" if items else "Bulunamadı."
         except: result_content = "Hata oluştu."
 
-    # Klavye düzenini koru
     keyboard = [
         [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"ceviri|{word}"),
          InlineKeyboardButton("🔊 Sesli Dinle", callback_data=f"ses|{word}")],

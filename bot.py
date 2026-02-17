@@ -1,24 +1,27 @@
 import os
+import requests
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
 TOKEN = os.getenv("TOKEN")
 
-dictionary = {
-    "hello": "Hello!",
-    "lend": "The lumbar region; loin."
-}
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Merhaba! Kelime yazabilirsin.")
+    await update.message.reply_text("Merhaba! İngilizce kelime yaz.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.lower()
+    word = update.message.text.lower()
 
-    if text in dictionary:
-        await update.message.reply_text(dictionary[text])
-    else:
+    url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+    response = requests.get(url)
+
+    if response.status_code != 200:
         await update.message.reply_text("Kelime bulunamadı.")
+        return
+
+    data = response.json()
+    meaning = data[0]["meanings"][0]["definitions"][0]["definition"]
+
+    await update.message.reply_text(f"{word}:\n{meaning}")
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
@@ -28,4 +31,3 @@ if __name__ == "__main__":
 
     print("Bot çalışıyor...")
     app.run_polling()
-

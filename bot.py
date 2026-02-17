@@ -73,7 +73,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_text = (
         f"🔤 **Kelime:** {word.capitalize()}\n\n"
         f"🇹🇷 **Türkçesi:** {turkish_meaning.capitalize()}\n"
-        f"📖 **Tanım:** {english_def}\n"
+        f"🇬🇧 **İngilizce Tanımı:** {english_def}"
         f"🔥 **Güçlü Eş Anlamlılar:** _{synonyms_text}_"
     )
 

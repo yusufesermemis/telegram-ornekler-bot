@@ -7,18 +7,14 @@ from dotenv import load_dotenv
 from deep_translator import GoogleTranslator
 
 # Loglama
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
-# --- KOMUTLAR ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name
-    await update.message.reply_text(f"Merhaba {user_name}! 👋\nBir kelime yaz, sana seçenekler sunayım.")
+    await update.message.reply_text(f"Merhaba {user_name}! 👋\nKelimeyi yaz, neyi görmek istediğini butonlardan seç.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -26,36 +22,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     word = update.message.text.lower().strip()
     
-    # Arka planda kelimenin dilini anlamak için hızlıca bir çeviri kontrolü yapıyoruz
-    show_translate_button = True
-    try:
-        translated_check = GoogleTranslator(source='auto', target='tr').translate(word).lower()
-        # Eğer kelime zaten Türkçe ise (örneğin "elma" == "elma"), çeviri butonuna gerek yok
-        if word == translated_check:
-            show_translate_button = False
-    except:
-        pass # Hata olursa varsayılan olarak butonu göster
+    # Başlığı sade tutuyoruz, otomatik karşılık yazmıyor
+    header_text = f"🔎 **Kelime:** {word.capitalize()}"
 
-    # --- BUTONLARI HAZIRLAMA KISMI ---
-    keyboard = []
-
-    # 1. Eğer kelime Türkçe değilse "Türkçe Çeviri" butonunu ekle
-    if show_translate_button:
-        keyboard.append([InlineKeyboardButton("🇹🇷 Türkçe Çeviri", callback_data=f"ceviri|{word}")])
-    
-    # 2. Diğer butonlar her zaman görünsün
-    keyboard.append([InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}")])
-    keyboard.append([InlineKeyboardButton("🔄 Eş Anlamlılar", callback_data=f"esanlam|{word}")])
+    # Butonlar: Artık her zaman 3 buton da çıkıyor
+    keyboard = [
+        [InlineKeyboardButton("🔄 Çeviri / Karşılık", callback_data=f"ceviri|{word}")],
+        [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}")],
+        [InlineKeyboardButton("🔄 Eş Anlamlılar", callback_data=f"esanlam|{word}")]
+    ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        f"🔎 **Kelime:** {word.capitalize()}\nNe öğrenmek istersin?", 
+        f"{header_text}\nLütfen bir işlem seçin:", 
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
 
-# --- BUTON TIKLAMALARINI YAKALAYAN FONKSİYON ---
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer() 
@@ -64,76 +48,63 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = data[0]
     word = data[1]
 
-    result_text = ""
-    
-    # Butonları tekrar hesaplamamız lazım (ki güncel mesajda da doğru butonlar kalsın)
-    show_translate_button = True
+    result_content = ""
+
+    # Karar mekanizması için çevirileri hazırla
     try:
-        translated_check = GoogleTranslator(source='auto', target='tr').translate(word).lower()
-        if word == translated_check:
-            show_translate_button = False
+        en_res = GoogleTranslator(source='auto', target='en').translate(word).lower()
+        tr_res = GoogleTranslator(source='auto', target='tr').translate(word).lower()
     except:
-        pass
+        en_res, tr_res = word, word
 
-    keyboard = []
-    if show_translate_button:
-        keyboard.append([InlineKeyboardButton("🇹🇷 Türkçe Çeviri", callback_data=f"ceviri|{word}")])
-    keyboard.append([InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}")])
-    keyboard.append([InlineKeyboardButton("🔄 Eş Anlamlılar", callback_data=f"esanlam|{word}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # --- İŞLEMLER ---
     if action == "ceviri":
-        try:
-            translated = GoogleTranslator(source='auto', target='tr').translate(word)
-            result_text = f"🔎 **{word.capitalize()}**\n🇹🇷 **Türkçesi:** {translated.capitalize()}"
-        except:
-            result_text = "Çeviri servisine ulaşılamadı."
+        # Eğer kullanıcı zaten Türkçe yazdıysa İngilizcesini göster, yoksa Türkçesini
+        if word == tr_res:
+            result_content = f"🇬🇧 **İngilizce Karşılığı:** {en_res.capitalize()}"
+        else:
+            result_content = f"🇹🇷 **Türkçe Anlamı:** {tr_res.capitalize()}"
 
     elif action == "tanim":
         try:
-            target_word = GoogleTranslator(source='auto', target='en').translate(word).lower()
-            url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{target_word}"
+            url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{en_res}"
             response = requests.get(url, timeout=5)
-            definition = "Tanım bulunamadı."
             if response.status_code == 200:
-                data = response.json()
-                definition = data[0]["meanings"][0]["definitions"][0]["definition"]
-            result_text = f"🔎 **{word.capitalize()}**\n📖 **Tanım:** {definition}"
+                definition = response.json()[0]["meanings"][0]["definitions"][0]["definition"]
+                result_content = f"📖 **İngilizce Tanım:** {definition}"
+            else:
+                result_content = "Tanım bulunamadı."
         except:
-            result_text = "Tanım servisine ulaşılamadı."
+            result_content = "Bağlantı hatası."
 
     elif action == "esanlam":
         try:
-            target_word = GoogleTranslator(source='auto', target='en').translate(word).lower()
-            url = f"https://api.datamuse.com/words?rel_syn={target_word}"
+            url = f"https://api.datamuse.com/words?rel_syn={en_res}"
             response = requests.get(url, timeout=5)
-            synonyms = "Bulunamadı"
-            if response.status_code == 200:
-                data = response.json()
-                items = [item['word'] for item in data[:5]]
-                if items:
-                    synonyms = ", ".join(items)
-            result_text = f"🔎 **{word.capitalize()}**\n🔥 **Eş Anlamlılar:** _{synonyms}_"
+            items = [item['word'] for item in response.json()[:5]]
+            synonyms = ", ".join(items) if items else "Bulunamadı"
+            result_content = f"🔥 **Eş Anlamlılar:** _{synonyms}_"
         except:
-            result_text = "Veri alınamadı."
+            result_content = "Veri hatası."
 
     # Mesajı güncelle
-    await query.edit_message_text(text=result_text, reply_markup=reply_markup, parse_mode="Markdown")
+    keyboard = [
+        [InlineKeyboardButton("🔄 Çeviri / Karşılık", callback_data=f"ceviri|{word}")],
+        [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}")],
+        [InlineKeyboardButton("🔄 Eş Anlamlılar", callback_data=f"esanlam|{word}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        text=f"🔎 **Kelime:** {word.capitalize()}\n\n{result_content}", 
+        reply_markup=reply_markup, 
+        parse_mode="Markdown"
+    )
 
 def main():
-    if not TOKEN:
-        print("HATA: TOKEN yok.")
-        return
-
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_click))
-
-    print("Bot çalışıyor...")
     app.run_polling()
 
 if __name__ == "__main__":

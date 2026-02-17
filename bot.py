@@ -3,7 +3,7 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
-TOKEN = "8251344959:AAFu0YyaAssxp9OltHn3_dcO1ro_xUm_VdM"
+TOKEN = os.getenv("TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Merhaba! İngilizce kelime yazabilirsin 🙂")

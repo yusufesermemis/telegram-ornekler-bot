@@ -14,7 +14,19 @@ TOKEN = os.getenv("TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name
-    await update.message.reply_text(f"Merhaba {user_name}! 👋\nKelimeyi yaz, neyi görmek istediğini butonlardan seç.")
+    await update.message.reply_text(
+        f"Merhaba {user_name}! 👋\nKelimeyi yaz, neyi görmek istediğini seç.\n"
+        f"⭐ Favorilerini görmek için /listem yazabilirsin."
+    )
+
+# --- YENİ KOMUT: FAVORİ LİSTESİNİ GÖSTER ---
+async def show_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    favs = context.user_data.get('favorites', [])
+    if not favs:
+        await update.message.reply_text("Henüz favori kelimen yok. ⭐ butonuyla ekleyebilirsin!")
+    else:
+        mesaj = "⭐ **Favori Kelimelerin:**\n\n" + "\n".join([f"• {w.capitalize()}" for w in favs])
+        await update.message.reply_text(mesaj, parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -23,32 +35,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     word = update.message.text.lower().strip()
     header_text = f"🔎 **Kelime:** {word.capitalize()}"
 
-    # Butonlara bayrakları ve emojiyi ekledik
+    # Butonlar: Favori butonu eklendi
     keyboard = [
         [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"ceviri|{word}")],
-        [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}")],
-        [InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"esanlam|{word}")]
+        [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}"),
+         InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"esanlam|{word}")],
+        [InlineKeyboardButton("⭐ Favorilere Ekle", callback_data=f"fav|{word}")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        f"{header_text}\nLütfen bir işlem seçin:", 
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"{header_text}\nLütfen bir işlem seçin:", reply_markup=reply_markup, parse_mode="Markdown")
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer() 
-    
     data = query.data.split("|")
-    action = data[0]
-    word = data[1]
+    action, word = data[0], data[1]
 
     result_content = ""
+    
+    # 1. FAVORİYE EKLEME İŞLEMİ
+    if action == "fav":
+        if 'favorites' not in context.user_data:
+            context.user_data['favorites'] = []
+        
+        if word not in context.user_data['favorites']:
+            context.user_data['favorites'].append(word)
+            await query.answer(f"'{word}' listene eklendi! ⭐")
+        else:
+            await query.answer(f"'{word}' zaten listende. ✅")
+        return # Mesajı güncellemeye gerek yok, sadece bildirim veriyoruz
 
-    # Karar mekanizması için çevirileri hazırla
+    await query.answer()
+
+    # Çeviri hazırlıkları
     try:
         en_res = GoogleTranslator(source='auto', target='en').translate(word).lower()
         tr_res = GoogleTranslator(source='auto', target='tr').translate(word).lower()
@@ -56,52 +75,35 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         en_res, tr_res = word, word
 
     if action == "ceviri":
-        # Eğer kullanıcı zaten Türkçe yazdıysa İngilizcesini (🇬🇧), yoksa Türkçesini (🇹🇷) göster
-        if word == tr_res:
-            result_content = f"🇬🇧 **İngilizce Karşılığı:** {en_res.capitalize()}"
-        else:
-            result_content = f"🇹🇷 **Türkçe Anlamı:** {tr_res.capitalize()}"
-
+        result_content = f"🇬🇧 **İngilizce:** {en_res.capitalize()}" if word == tr_res else f"🇹🇷 **Türkçe:** {tr_res.capitalize()}"
     elif action == "tanim":
         try:
             url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{en_res}"
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                definition = response.json()[0]["meanings"][0]["definitions"][0]["definition"]
-                result_content = f"📖 **İngilizce Tanım:** {definition}"
-            else:
-                result_content = "Tanım bulunamadı."
-        except:
-            result_content = "Bağlantı hatası."
-
+            res = requests.get(url, timeout=5)
+            result_content = f"📖 **Tanım:** {res.json()[0]['meanings'][0]['definitions'][0]['definition']}" if res.status_code == 200 else "Tanım bulunamadı."
+        except: result_content = "Hata oluştu."
     elif action == "esanlam":
         try:
             url = f"https://api.datamuse.com/words?rel_syn={en_res}"
-            response = requests.get(url, timeout=5)
-            items = [item['word'] for item in response.json()[:5]]
-            synonyms = ", ".join(items) if items else "Bulunamadı"
-            # Eş anlamlılar için 🔗 emojisinin kullanıldığı satır:
-            result_content = f"🔗 **Eş Anlamlılar:** _{synonyms}_"
-        except:
-            result_content = "Veri hatası."
+            res = requests.get(url, timeout=5)
+            items = [item['word'] for item in res.json()[:5]]
+            result_content = f"🔗 **Eş Anlamlılar:** _{', '.join(items)}_" if items else "Bulunamadı."
+        except: result_content = "Hata oluştu."
 
-    # Butonları mesajın altında tutmaya devam ediyoruz
+    # Klavye (Favori butonu dahil)
     keyboard = [
         [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"ceviri|{word}")],
-        [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}")],
-        [InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"esanlam|{word}")]
+        [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}"),
+         InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"esanlam|{word}")],
+        [InlineKeyboardButton("⭐ Favorilere Ekle", callback_data=f"fav|{word}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await query.edit_message_text(
-        text=f"🔎 **Kelime:** {word.capitalize()}\n\n{result_content}", 
-        reply_markup=reply_markup, 
-        parse_mode="Markdown"
-    )
+    await query.edit_message_text(text=f"🔎 **Kelime:** {word.capitalize()}\n\n{result_content}", reply_markup=reply_markup, parse_mode="Markdown")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("listem", show_favorites)) # Yeni komut
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_click))
     app.run_polling()

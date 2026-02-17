@@ -16,7 +16,7 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Merhaba! Bir İngilizce kelime yaz; sana anlamını, çevirisini ve eş anlamlılarını getireyim. 🇹🇷🇬🇧")
+    await update.message.reply_text("Merhaba! Bir İngilizce kelime yaz; sana anlamını, çevirisini ve GÜÇLÜ eş anlamlılarını getireyim. 🇹🇷🇬🇧")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -27,64 +27,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # "Yazıyor..." aksiyonu
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    # 1. API İSTEĞİ (İngilizce Tanım ve Eş Anlamlılar)
-    url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+    # --- 1. ADIM: İNGİLİZCE TANIM (DictionaryAPI) ---
+    url_def = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
     english_def = "Tanım bulunamadı."
-    synonyms_list = [] # Eş anlamlıları burada toplayacağız
-
+    
     try:
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            
-            # Tanımı al
-            if isinstance(data, list) and len(data) > 0:
-                meanings = data[0].get("meanings", [])
+        response_def = requests.get(url_def, timeout=5)
+        if response_def.status_code == 200:
+            data_def = response_def.json()
+            # İlk anlamı çekiyoruz
+            if isinstance(data_def, list) and len(data_def) > 0:
+                meanings = data_def[0].get("meanings", [])
                 if meanings:
                     definitions = meanings[0].get("definitions", [])
                     if definitions:
                         english_def = definitions[0].get("definition", "Tanım yok.")
-            
-            # Eş anlamlıları topla (API'de farklı yerlerde olabiliyor, hepsini tarıyoruz)
-            for item in data:
-                for meaning in item.get("meanings", []):
-                    # Ana kısımdaki eş anlamlılar
-                    if "synonyms" in meaning:
-                        for syn in meaning["synonyms"]:
-                            synonyms_list.append(syn)
-                    
-                    # Alt tanımlardaki eş anlamlılar
-                    for definition in meaning.get("definitions", []):
-                        if "synonyms" in definition:
-                            for syn in definition["synonyms"]:
-                                synonyms_list.append(syn)
-
     except Exception as e:
-        english_def = "Bağlantı hatası."
-        print(f"Hata: {e}")
+        print(f"Tanım Hatası: {e}")
 
-    # 2. TÜRKÇE ÇEVİRİ
+    # --- 2. ADIM: EŞ ANLAMLILAR (Datamuse API - Yeni Eklenen Kısım) ---
+    # Datamuse, 'rel_syn' (related synonyms) parametresiyle çalışır.
+    url_syn = f"https://api.datamuse.com/words?rel_syn={word}"
+    synonyms_text = "Bulunamadı"
+
+    try:
+        response_syn = requests.get(url_syn, timeout=5)
+        if response_syn.status_code == 200:
+            data_syn = response_syn.json()
+            # Gelen veri şöyledir: [{"word": "happy", "score": 100}, ...]
+            # En yüksek puanlı ilk 7 kelimeyi alalım
+            syn_list = [item['word'] for item in data_syn[:7]]
+            
+            if syn_list:
+                synonyms_text = ", ".join(syn_list)
+    except Exception as e:
+        print(f"Eş Anlamlı Hatası: {e}")
+
+    # --- 3. ADIM: TÜRKÇE ÇEVİRİ (Deep Translator) ---
     try:
         turkish_meaning = GoogleTranslator(source='auto', target='tr').translate(word)
     except Exception:
         turkish_meaning = "Çeviri yapılamadı."
 
-    # 3. EŞ ANLAMLILARI DÜZENLEME
-    # Listeyi temizle (aynı kelime tekrar etmesin) ve ilk 5 tanesini al
-    unique_synonyms = list(set(synonyms_list)) 
-    
-    if unique_synonyms:
-        # Sadece ilk 5 tanesini al
-        synonyms_text = ", ".join(unique_synonyms[:5]) 
-    else:
-        synonyms_text = "Bulunamadı"
-
-    # 4. MESAJI OLUŞTUR VE GÖNDER
+    # --- 4. ADIM: MESAJI BİRLEŞTİR VE GÖNDER ---
     reply_text = (
         f"🔤 **Kelime:** {word.capitalize()}\n\n"
         f"🇹🇷 **Türkçesi:** {turkish_meaning.capitalize()}\n"
         f"📖 **Tanım:** {english_def}\n"
-        f"🔄 **Eş Anlamlılar:** _{synonyms_text}_"
+        f"🔥 **Güçlü Eş Anlamlılar:** _{synonyms_text}_"
     )
 
     await update.message.reply_text(reply_text, parse_mode="Markdown")

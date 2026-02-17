@@ -6,7 +6,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, fil
 from dotenv import load_dotenv
 from deep_translator import GoogleTranslator
 
-# Loglama ayarları
+# Loglama ayarları (Hata takibi için)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -16,29 +16,35 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Merhaba! Kelimeyi yaz, gerisini bana bırak. 🇹🇷↔🇬🇧")
+    # Kullanıcının ismini alalım
+    user_name = update.effective_user.first_name
+    await update.message.reply_text(f"Merhaba {user_name}! 👋\nBana Türkçe veya İngilizce bir kelime yaz, senin için çevirip detaylarını getireyim. 🇹🇷↔🇬🇧")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
+    # Kullanıcının yazdığı kelime ve ismi
     user_input = update.message.text.lower().strip()
+    user_name = update.effective_user.first_name
     
-    # "Yazıyor..." aksiyonu
+    # "Yazıyor..." aksiyonu (Botun düşündüğünü gösterir)
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    # --- 1. ADIM: AKILLI ÇEVİRİ ---
+    # --- 1. ADIM: AKILLI ÇEVİRİ VE DİL TESPİTİ ---
     try:
-        # İngilizce karşılığını bul (API araması için lazım)
+        # İngilizce karşılığını bul (API araması ve başlık için lazım)
         target_word = GoogleTranslator(source='auto', target='en').translate(user_input).lower()
         
         # Türkçe karşılığını bul (Kullanıcıya göstermek için)
         turkish_meaning = GoogleTranslator(source='auto', target='tr').translate(user_input).lower()
     except Exception:
+        # Çeviri servisi hata verirse olduğu gibi bırak
         target_word = user_input
         turkish_meaning = user_input
 
-    # --- 2. ADIM: İNGİLİZCE TANIM ÇEKME ---
+    # --- 2. ADIM: İNGİLİZCE TANIM ÇEKME (Dictionary API) ---
+    # Aramayı her zaman İngilizce kelime (target_word) üzerinden yapıyoruz
     url_def = f"https://api.dictionaryapi.dev/api/v2/entries/en/{target_word}"
     english_def = "Tanım bulunamadı."
     
@@ -55,7 +61,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Tanım Hatası: {e}")
 
-    # --- 3. ADIM: EŞ ANLAMLILAR ---
+    # --- 3. ADIM: GÜÇLÜ EŞ ANLAMLILAR (Datamuse API) ---
     url_syn = f"https://api.datamuse.com/words?rel_syn={target_word}"
     synonyms_text = "Bulunamadı"
 
@@ -63,6 +69,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response_syn = requests.get(url_syn, timeout=5)
         if response_syn.status_code == 200:
             data_syn = response_syn.json()
+            # En alakalı ilk 7 kelimeyi al
             syn_list = [item['word'] for item in data_syn[:7]]
             if syn_list:
                 synonyms_text = ", ".join(syn_list)
@@ -71,21 +78,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- 4. ADIM: MESAJI OLUŞTURMA ---
     
-    # BURASI GÜNCELLENDİ: Artık 'Aranan' yerine 'Kelime' yazıyor
+    # Başlık: Kullanıcının yazdığı kelime
     header = f"🔎 **Kelime:** {user_input.capitalize()}"
     
-    # Eğer çeviri yapıldıysa (Türkçe -> İngilizce gibi), yanına bayrakla ekleyelim
+    # Eğer kelime çevrildiyse (Yani Türkçe yazıldıysa), yanına İngilizcesini ekle
     if user_input != target_word:
         header += f" ➡️ 🇬🇧 **{target_word.capitalize()}**"
 
     parts = [header, ""] # Görsel boşluk
     
-    # KONTROL: Türkçe anlamı sadece gerekirse göster
+    # KONTROL: Eğer kullanıcının yazdığı zaten Türkçe ise "Türkçe Anlamı" satırını gizle
     if user_input != turkish_meaning:
         parts.append(f"🇹🇷 **Türkçe Anlamı:** {turkish_meaning.capitalize()}")
     
+    # İngilizce Tanım ve Eş Anlamlılar (Her zaman gösterilir)
     parts.append(f"🇬🇧 **İngilizce Tanımı:** {english_def}")
     parts.append(f"🔥 **Eş Anlamlılar:** _{synonyms_text}_")
+    
+    # Altına küçük bir imza ekleyelim (Opsiyonel)
+    parts.append(f"\n_Umarım yardımcı olmuştur, {user_name}!_")
 
     reply_text = "\n".join(parts)
 
@@ -93,7 +104,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not TOKEN:
-        print("HATA: TOKEN bulunamadı!")
+        print("HATA: TOKEN bulunamadı! Lütfen .env dosyasını veya Railway Variables kısmını kontrol et.")
         return
 
     app = ApplicationBuilder().token(TOKEN).build()

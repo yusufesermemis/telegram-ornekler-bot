@@ -21,15 +21,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     word = update.message.text.lower().strip()
-    
-    # Başlığı sade tutuyoruz, otomatik karşılık yazmıyor
     header_text = f"🔎 **Kelime:** {word.capitalize()}"
 
-    # Butonlar: Artık her zaman 3 buton da çıkıyor
+    # Butonlara bayrakları ve emojiyi ekledik
     keyboard = [
-        [InlineKeyboardButton("🔄 Çeviri / Karşılık", callback_data=f"ceviri|{word}")],
+        [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"ceviri|{word}")],
         [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}")],
-        [InlineKeyboardButton("🔄 Eş Anlamlılar", callback_data=f"esanlam|{word}")]
+        [InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"esanlam|{word}")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -58,7 +56,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         en_res, tr_res = word, word
 
     if action == "ceviri":
-        # Eğer kullanıcı zaten Türkçe yazdıysa İngilizcesini göster, yoksa Türkçesini
+        # Eğer kullanıcı zaten Türkçe yazdıysa İngilizcesini (🇬🇧), yoksa Türkçesini (🇹🇷) göster
         if word == tr_res:
             result_content = f"🇬🇧 **İngilizce Karşılığı:** {en_res.capitalize()}"
         else:
@@ -82,15 +80,16 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = requests.get(url, timeout=5)
             items = [item['word'] for item in response.json()[:5]]
             synonyms = ", ".join(items) if items else "Bulunamadı"
-            result_content = f"🔥 **Eş Anlamlılar:** _{synonyms}_"
+            # Eş anlamlılar için 🔗 emojisinin kullanıldığı satır:
+            result_content = f"🔗 **Eş Anlamlılar:** _{synonyms}_"
         except:
             result_content = "Veri hatası."
 
-    # Mesajı güncelle
+    # Butonları mesajın altında tutmaya devam ediyoruz
     keyboard = [
-        [InlineKeyboardButton("🔄 Çeviri / Karşılık", callback_data=f"ceviri|{word}")],
+        [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"ceviri|{word}")],
         [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}")],
-        [InlineKeyboardButton("🔄 Eş Anlamlılar", callback_data=f"esanlam|{word}")]
+        [InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"esanlam|{word}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 

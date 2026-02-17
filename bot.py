@@ -16,26 +16,36 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Merhaba! Bir İngilizce kelime yaz; sana anlamını, çevirisini ve Güçlü eş anlamlılarını getireyim. 🇹🇷🇬🇧")
+    await update.message.reply_text("Merhaba! Kelimeyi yaz, gerisini bana bırak. 🇹🇷↔🇬🇧")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    word = update.message.text.lower().strip()
+    user_input = update.message.text.lower().strip()
     
     # "Yazıyor..." aksiyonu
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    # --- 1. ADIM: İNGİLİZCE TANIM (DictionaryAPI) ---
-    url_def = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+    # --- 1. ADIM: AKILLI ÇEVİRİ ---
+    try:
+        # İngilizce karşılığını bul (API araması için lazım)
+        target_word = GoogleTranslator(source='auto', target='en').translate(user_input).lower()
+        
+        # Türkçe karşılığını bul (Kullanıcıya göstermek için)
+        turkish_meaning = GoogleTranslator(source='auto', target='tr').translate(user_input).lower()
+    except Exception:
+        target_word = user_input
+        turkish_meaning = user_input
+
+    # --- 2. ADIM: İNGİLİZCE TANIM ÇEKME ---
+    url_def = f"https://api.dictionaryapi.dev/api/v2/entries/en/{target_word}"
     english_def = "Tanım bulunamadı."
     
     try:
         response_def = requests.get(url_def, timeout=5)
         if response_def.status_code == 200:
             data_def = response_def.json()
-            # İlk anlamı çekiyoruz
             if isinstance(data_def, list) and len(data_def) > 0:
                 meanings = data_def[0].get("meanings", [])
                 if meanings:
@@ -45,37 +55,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Tanım Hatası: {e}")
 
-    # --- 2. ADIM: EŞ ANLAMLILAR (Datamuse API - Yeni Eklenen Kısım) ---
-    # Datamuse, 'rel_syn' (related synonyms) parametresiyle çalışır.
-    url_syn = f"https://api.datamuse.com/words?rel_syn={word}"
+    # --- 3. ADIM: EŞ ANLAMLILAR ---
+    url_syn = f"https://api.datamuse.com/words?rel_syn={target_word}"
     synonyms_text = "Bulunamadı"
 
     try:
         response_syn = requests.get(url_syn, timeout=5)
         if response_syn.status_code == 200:
             data_syn = response_syn.json()
-            # Gelen veri şöyledir: [{"word": "happy", "score": 100}, ...]
-            # En yüksek puanlı ilk 7 kelimeyi alalım
             syn_list = [item['word'] for item in data_syn[:7]]
-            
             if syn_list:
                 synonyms_text = ", ".join(syn_list)
-    except Exception as e:
-        print(f"Eş Anlamlı Hatası: {e}")
-
-    # --- 3. ADIM: TÜRKÇE ÇEVİRİ (Deep Translator) ---
-    try:
-        turkish_meaning = GoogleTranslator(source='auto', target='tr').translate(word)
     except Exception:
-        turkish_meaning = "Çeviri yapılamadı."
+        pass
 
-    # --- 4. ADIM: MESAJI BİRLEŞTİR VE GÖNDER ---
-    reply_text = (
-        f"🔤 **Kelime:** {word.capitalize()}\n\n"
-        f"🇹🇷 **Türkçesi:** {turkish_meaning.capitalize()}\n"
-        f"🇬🇧 **Tanımı:** {english_def}\n"
-        f"🔥 **Güçlü Eş Anlamlılar:** _{synonyms_text}_"
-    )
+    # --- 4. ADIM: MESAJI OLUŞTURMA ---
+    
+    # Başlık: Aranan kelimeyi gösterelim
+    header = f"🔎 **Aranan:** {user_input.capitalize()}"
+    
+    # Eğer çeviri yapıldıysa (Türkçe -> İngilizce gibi), okun ucunu da gösterelim
+    if user_input != target_word:
+        header += f" ➡️ **{target_word.capitalize()}**"
+
+    parts = [header, ""] # Görsel boşluk için
+    
+    # KONTROL: Eğer kullanıcının yazdığı ile çeviri aynıysa, "Türkçe Anlamı" satırını ekleme!
+    if user_input != turkish_meaning:
+        parts.append(f"🇹🇷 **Türkçe Anlamı:** {turkish_meaning.capitalize()}")
+    
+    # İŞTE BURASI DEĞİŞTİ: Artık bayrak var 🇬🇧
+    parts.append(f"🇬🇧 **İngilizce Tanımı:** {english_def}")
+    parts.append(f"🔥 **Eş Anlamlılar:** _{synonyms_text}_")
+
+    reply_text = "\n".join(parts)
 
     await update.message.reply_text(reply_text, parse_mode="Markdown")
 

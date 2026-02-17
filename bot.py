@@ -71,20 +71,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- 4. ADIM: MESAJI OLUŞTURMA ---
     
-    # Başlık: Aranan kelimeyi gösterelim
-    header = f"🔎 **Aranan:** {user_input.capitalize()}"
+    # BURASI GÜNCELLENDİ: Artık 'Aranan' yerine 'Kelime' yazıyor
+    header = f"🔎 **Kelime:** {user_input.capitalize()}"
     
-    # Eğer çeviri yapıldıysa (Türkçe -> İngilizce gibi), okun ucunu da gösterelim
+    # Eğer çeviri yapıldıysa (Türkçe -> İngilizce gibi), yanına bayrakla ekleyelim
     if user_input != target_word:
-        header += f" ➡️ **{target_word.capitalize()}**"
+        header += f" ➡️ 🇬🇧 **{target_word.capitalize()}**"
 
-    parts = [header, ""] # Görsel boşluk için
+    parts = [header, ""] # Görsel boşluk
     
-    # KONTROL: Eğer kullanıcının yazdığı ile çeviri aynıysa, "Türkçe Anlamı" satırını ekleme!
+    # KONTROL: Türkçe anlamı sadece gerekirse göster
     if user_input != turkish_meaning:
         parts.append(f"🇹🇷 **Türkçe Anlamı:** {turkish_meaning.capitalize()}")
     
-    # İŞTE BURASI DEĞİŞTİ: Artık bayrak var 🇬🇧
     parts.append(f"🇬🇧 **İngilizce Tanımı:** {english_def}")
     parts.append(f"🔥 **Eş Anlamlılar:** _{synonyms_text}_")
 

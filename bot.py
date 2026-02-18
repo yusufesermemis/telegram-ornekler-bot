@@ -7,19 +7,22 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, Cal
 from dotenv import load_dotenv
 from gtts import gTTS
 
-# Loglama
+# Loglama ayarları
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-# --- YAPAY ZEKA AYARLARI (GÜNCELLENDİ) ---
+model = None
+# --- YAPAY ZEKA AYARLARI ---
 if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
-    # ESKİ: model = genai.GenerativeModel('gemini-pro')
-    # YENİ: Model ismini 'gemini-1.5-flash' yaptık. Hem daha hızlı hem de ücretsiz kotaya uygun.
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+        # En güncel ve hızlı model
+        model = genai.GenerativeModel('gemini-1.5-flash')
+    except Exception as e:
+        logging.error(f"Google AI Hatası: {e}")
 else:
     logging.warning("⚠️ GEMINI_API_KEY bulunamadı! Deyim özelliği çalışmayabilir.")
 
@@ -34,7 +37,7 @@ def get_translation(text, source, target):
 # --- AI DEYİM BULUCU ---
 async def fetch_idioms_with_ai(word):
     if not GEMINI_KEY:
-        return ["⚠️ API Anahtarı eksik."]
+        return ["⚠️ API Anahtarı eksik. Lütfen Railway Variables kısmına ekleyin."]
     
     try:
         # Yapay zekaya net komut veriyoruz
@@ -53,7 +56,7 @@ async def fetch_idioms_with_ai(word):
             if "-" in line:
                 parts = line.split("-")
                 eng = parts[0].strip()
-                tr = parts[1].strip()
+                tr = parts[1].strip() if len(parts) > 1 else ""
                 formatted_idioms.append(f"🔹 *{eng}*\n    _{tr}_")
         
         return formatted_idioms if formatted_idioms else ["Bu kelimeyle ilgili yaygın bir deyim bulunamadı."]

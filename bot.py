@@ -18,11 +18,13 @@ model = None
 # --- YAPAY ZEKA AYARLARI ---
 if GEMINI_KEY:
     try:
-        genai.configure(api_key=GEMINI_KEY)
+        # Değişken ismini GEMINI_KEY olarak düzelttik
+        genai.configure(api_key=GEMINI_KEY) 
         # En güncel ve hızlı model
         model = genai.GenerativeModel('gemini-1.5-flash')
+        logging.info("✅ Gemini AI bağlantısı başarılı.")
     except Exception as e:
-        logging.error(f"Google AI Hatası: {e}")
+        logging.error(f"⚠️ Google AI Hatası: {e}")
 else:
     logging.warning("⚠️ GEMINI_API_KEY bulunamadı! Deyim özelliği çalışmayabilir.")
 
@@ -36,11 +38,10 @@ def get_translation(text, source, target):
 
 # --- AI DEYİM BULUCU ---
 async def fetch_idioms_with_ai(word):
-    if not GEMINI_KEY:
-        return ["⚠️ API Anahtarı eksik. Lütfen Railway Variables kısmına ekleyin."]
+    if not model:
+        return ["⚠️ AI Modeli yüklenemedi. Lütfen API anahtarını kontrol edin."]
     
     try:
-        # Yapay zekaya net komut veriyoruz
         prompt = (
             f"List 3 popular English idioms containing the word '{word}'. "
             "Format exactly like this example:\n"
@@ -50,7 +51,6 @@ async def fetch_idioms_with_ai(word):
         response = await model.generate_content_async(prompt)
         text = response.text.strip()
         
-        # Gelen cevabı listeye çevirip süsleyelim
         formatted_idioms = []
         for line in text.split('\n'):
             if "-" in line:
@@ -103,16 +103,14 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     en_to_tr = get_translation(val, "en", "tr")
     
     header = f"🔎 **Kelime:** `{val.capitalize()}`\n"
-    content = ""
+    result_text = ""
 
-    # 1. CEVIRI
     if action == "c":
         if en_to_tr != val: 
-            content = f"🇹🇷 **Türkçe Anlamı**\n━━━━━━━━━━━━━━━━━━\n✨ `{en_to_tr.capitalize()}`"
+            result_text = f"🇹🇷 **Türkçe Anlamı**\n━━━━━━━━━━━━━━━━━━\n✨ `{en_to_tr.capitalize()}`"
         else:
-            content = f"🇬🇧 **İngilizce Karşılığı**\n━━━━━━━━━━━━━━━━━━\n✨ `{tr_to_en.capitalize()}`"
+            result_text = f"🇬🇧 **İngilizce Karşılığı**\n━━━━━━━━━━━━━━━━━━\n✨ `{tr_to_en.capitalize()}`"
 
-    # 2. SES
     elif action == "s":
         speak_word = tr_to_en if en_to_tr == val else val
         try:
@@ -122,35 +120,33 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(f"{val}.mp3"); return
         except: return
 
-    # 3. DEYIMLER (YAPAY ZEKA)
     elif action == "i":
         search_word = val if en_to_tr != val else tr_to_en
         idioms = await fetch_idioms_with_ai(search_word)
-        content = "🎭 **İlgili Deyimler (AI)**\n━━━━━━━━━━━━━━━━━━\n" + "\n\n".join(idioms)
+        result_text = "🎭 **İlgili Deyimler (AI)**\n━━━━━━━━━━━━━━━━━━\n" + "\n\n".join(idioms)
 
-    # 4. TANIM / ORNEK / ES ANLAM
     elif action in ["t", "o", "e"]:
         search_word = val if en_to_tr != val else tr_to_en
         try:
             if action == "e":
                 r = requests.get(f"https://api.datamuse.com/words?rel_syn={search_word}")
                 items = [f"`{i['word'].capitalize()}`" for i in r.json()[:5]]
-                content = "🔗 **Eş Anlamlı Kelimeler**\n━━━━━━━━━━━━━━━━━━\n" + ", ".join(items) if items else "Bulunamadı."
+                result_text = "🔗 **Eş Anlamlı Kelimeler**\n━━━━━━━━━━━━━━━━━━\n" + ", ".join(items) if items else "Bulunamadı."
             else:
                 r = requests.get(f"https://api.dictionaryapi.dev/api/v2/entries/en/{search_word}")
                 if r.status_code == 200:
                     d = r.json()[0]
                     if action == "t":
                         defi = d['meanings'][0]['definitions'][0]['definition']
-                        content = f"📖 **İngilizce Tanım**\n━━━━━━━━━━━━━━━━━━\n_{defi}_"
+                        result_text = f"📖 **İngilizce Tanım**\n━━━━━━━━━━━━━━━━━━\n_{defi}_"
                     else:
                         ex = "Örnek bulunamadı."
                         for m in d.get('meanings', []):
                             for de in m.get('definitions', []):
                                 if de.get('example'): ex = de['example']; break
-                        content = f"📝 **Örnek Cümle**\n━━━━━━━━━━━━━━━━━━\n_“{ex}”_"
-                else: content = "🚫 _Bilgi bulunamadı._"
-        except: content = "🚫 _Bağlantı hatası._"
+                        result_text = f"📝 **Örnek Cümle**\n━━━━━━━━━━━━━━━━━━\n_“{ex}”_"
+                else: result_text = "🚫 _Bilgi bulunamadı._"
+        except: result_text = "🚫 _Bağlantı hatası._"
 
     keyboard = [
         [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"c|{val}"),
@@ -161,7 +157,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("🎭 Deyimler (AI)", callback_data=f"i|{val}")]
     ]
     
-    await query.edit_message_text(text=header + content, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await query.edit_message_text(text=header + result_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()

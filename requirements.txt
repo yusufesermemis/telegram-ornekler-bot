@@ -1,5 +1,5 @@
-python-telegram-bot==21.6
+python-telegram-bot 21.6
 requests
 python-dotenv
-deep-translator
 gTTS
+google-generativeai

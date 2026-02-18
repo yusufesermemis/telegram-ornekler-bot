@@ -14,10 +14,12 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-# --- YAPAY ZEKA AYARLARI ---
+# --- YAPAY ZEKA AYARLARI (GÜNCELLENDİ) ---
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel('gemini-pro')
+    # ESKİ: model = genai.GenerativeModel('gemini-pro')
+    # YENİ: Model ismini 'gemini-1.5-flash' yaptık. Hem daha hızlı hem de ücretsiz kotaya uygun.
+    model = genai.GenerativeModel('gemini-1.5-flash')
 else:
     logging.warning("⚠️ GEMINI_API_KEY bulunamadı! Deyim özelliği çalışmayabilir.")
 
@@ -29,13 +31,13 @@ def get_translation(text, source, target):
         return res.json()["responseData"]["translatedText"].lower() if res.status_code == 200 else text
     except: return text
 
-# --- AI DEYİM BULUCU (Yeni Özellik) ---
+# --- AI DEYİM BULUCU ---
 async def fetch_idioms_with_ai(word):
     if not GEMINI_KEY:
         return ["⚠️ API Anahtarı eksik."]
     
     try:
-        # Yapay zekaya özel emir veriyoruz
+        # Yapay zekaya net komut veriyoruz
         prompt = (
             f"List 3 popular English idioms containing the word '{word}'. "
             "Format exactly like this example:\n"
@@ -62,8 +64,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
     msg = (
         f"Merhaba {user}! 👋\n\n"
-        "Artık yapay zeka destekli bir asistanım! 🧠\n"
-        "İstediğin kelimeyi yaz, deyimleri senin için canlı üreteyim.\n\n"
+        "Yapay zeka destekli asistanın hazır! 🧠\n"
+        "İstediğin kelimeyi yaz, deyimleri senin için canlı bulayım.\n\n"
         "_Kelime yazarak başla_ 👇"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -89,9 +91,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data.split("|")
     action, val = data[0], data[1]
     
-    # AI işlemi uzun sürebilir, kullanıcıya bilgi verelim
     if action == "i":
-        await query.answer("🤖 Yapay zeka deyimleri araştırıyor...")
+        await query.answer("🤖 Yapay zeka araştırıyor...")
     else:
         await query.answer()
 

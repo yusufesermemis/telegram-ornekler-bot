@@ -12,21 +12,24 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+
+# --- DEĞİŞKEN İSMİNİ BURADA EŞİTLEDİK ---
+# Railway'deki isminle (GEMINI_API_KEY) tam olarak aynı yaptık.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 model = None
+
 # --- YAPAY ZEKA AYARLARI ---
-if GEMINI_KEY:
+if GEMINI_API_KEY:
     try:
-        # Değişken ismini GEMINI_KEY olarak düzelttik
-        genai.configure(api_key=GEMINI_KEY) 
+        genai.configure(api_key=GEMINI_API_KEY)
         # En güncel ve hızlı model
         model = genai.GenerativeModel('gemini-1.5-flash')
-        logging.info("✅ Gemini AI bağlantısı başarılı.")
+        logging.info("✅ Gemini AI bağlantısı Railway anahtarı ile başarılı.")
     except Exception as e:
         logging.error(f"⚠️ Google AI Hatası: {e}")
 else:
-    logging.warning("⚠️ GEMINI_API_KEY bulunamadı! Deyim özelliği çalışmayabilir.")
+    logging.warning("⚠️ Railway'de GEMINI_API_KEY bulunamadı!")
 
 # --- MyMemory Çeviri ---
 def get_translation(text, source, target):
@@ -39,7 +42,7 @@ def get_translation(text, source, target):
 # --- AI DEYİM BULUCU ---
 async def fetch_idioms_with_ai(word):
     if not model:
-        return ["⚠️ AI Modeli yüklenemedi. Lütfen API anahtarını kontrol edin."]
+        return ["⚠️ AI Modeli hazır değil. Lütfen Railway ayarlarını kontrol edin."]
     
     try:
         prompt = (
@@ -74,7 +77,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.text: return
+    if not update.message or not update.message.text: return
     word = update.message.text.lower().strip()
     
     keyboard = [

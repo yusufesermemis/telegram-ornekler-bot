@@ -1,123 +1,179 @@
 import os
 import requests
+import random
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from dotenv import load_dotenv
-from deep_translator import GoogleTranslator
-from gtts import gTTS # Ses kütüphanesi
+from gtts import gTTS
 
-# Loglama
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
+# --- KELİME & DEYİM HAVUZU ---
+# Quiz için kelimeler
+SEED_WORDS = ["apple", "time", "break", "leg", "money", "heart", "mind", "book", "hand", "eye", "dream", "life", "world", "friend"]
+DISTRACTORS = ["Masa", "Kalem", "Gelecek", "Umut", "Hızlı", "Yavaş", "Zaman", "Yolculuk", "Mavi", "Büyük"]
+
+# --- DEYİM VE ATASÖZÜ VERİ TABANI (Örnekler) ---
+# Buraya en yaygın İngilizce deyimleri ve Türkçe karşılıklarını ekledik.
+IDIOMS_POOL = [
+    {"ph": "Piece of cake", "tr": "Çocuk oyuncağı (Çok kolay)", "k": ["cake", "piece", "easy"]},
+    {"ph": "Break a leg", "tr": "Şeytanın bacağını kır (Bol şans)", "k": ["break", "leg", "luck"]},
+    {"ph": "Kill two birds with one stone", "tr": "Bir taşla iki kuş vurmak", "k": ["bird", "stone", "kill", "two"]},
+    {"ph": "Apple of my eye", "tr": "Göz bebeğim (Çok sevilen)", "k": ["apple", "eye", "love"]},
+    {"ph": "Under the weather", "tr": "Keyifsiz, hasta hissetmek", "k": ["weather", "sick", "ill"]},
+    {"ph": "Time flies", "tr": "Zaman su gibi akıp geçiyor", "k": ["time", "fly"]},
+    {"ph": "Cost an arm and a leg", "tr": "Ateş pahası (Çok pahalı)", "k": ["arm", "leg", "cost", "money", "expensive"]},
+    {"ph": "Let the cat out of the bag", "tr": "Ağzından baklayı çıkarmak (Sırrı bozmak)", "k": ["cat", "bag", "secret"]},
+    {"ph": "Once in a blue moon", "tr": "Kırk yılda bir (Çok nadir)", "k": ["moon", "blue", "rare"]},
+    {"ph": "No pain, no gain", "tr": "Emek olmadan yemek olmaz", "k": ["pain", "gain", "work"]},
+    {"ph": "Better late than never", "tr": "Geç olsun güç olmasın", "k": ["late", "never", "better"]},
+    {"ph": "Break the ice", "tr": "Buzları eritmek (Ortamı yumuşatmak)", "k": ["break", "ice"]},
+    {"ph": "Hit the sack", "tr": "Kafayı vurup yatmak", "k": ["hit", "sack", "sleep", "bed"]},
+    {"ph": "Miss the boat", "tr": "Fırsatı kaçırmak", "k": ["miss", "boat", "chance"]},
+    {"ph": "Speak of the devil", "tr": "İti an çomağı hazırla", "k": ["speak", "devil"]},
+    {"ph": "See eye to eye", "tr": "Aynı fikirde olmak", "k": ["see", "eye", "agree"]},
+    {"ph": "When pigs fly", "tr": "Çıkmaz ayın son çarşambası (Asla)", "k": ["pig", "fly", "never"]},
+    {"ph": "Actions speak louder than words", "tr": "Lafla peynir gemisi yürümez", "k": ["action", "word", "speak"]},
+    {"ph": "Don't judge a book by its cover", "tr": "Kimseyi dış görünüşüne göre yargılama", "k": ["book", "cover", "judge"]},
+    {"ph": "Call it a day", "tr": "Paydos etmek, günü bitirmek", "k": ["call", "day", "work"]}
+]
+
+def get_translation(text, source, target):
+    try:
+        url = f"https://api.mymemory.translated.net/get?q={text}&langpair={source}|{target}"
+        res = requests.get(url, timeout=5)
+        return res.json()["responseData"]["translatedText"].lower() if res.status_code == 200 else text
+    except: return text
+
+# --- DEYİM ARAMA FONKSİYONU ---
+def find_idioms(word):
+    found = []
+    word = word.lower()
+    for item in IDIOMS_POOL:
+        # Aranan kelime deyimin içinde geçiyor mu veya anahtar kelimelerden biri mi?
+        if word in item['ph'].lower() or word in item['k']:
+            found.append(f"🎭 **{item['ph']}**\n💡 _{item['tr']}_")
+    return found[:3] # En fazla 3 tane göster
+
+# --- QUIZ FONKSİYONLARI ---
+async def generate_quiz_list(count):
+    questions = []
+    selected_seeds = random.sample(SEED_WORDS, min(count, len(SEED_WORDS)))
+    for word in selected_seeds:
+        correct_answer = get_translation(word, "en", "tr")
+        options = random.sample(DISTRACTORS, 3)
+        options.append(correct_answer.capitalize())
+        random.shuffle(options)
+        questions.append({"q": word.capitalize(), "a": correct_answer.capitalize(), "options": options})
+    return questions
+
+async def send_quiz_question(query, context):
+    user_data = context.user_data
+    idx = user_data['quiz_idx']
+    questions = user_data['quiz_list']
+    if idx < len(questions):
+        q_data = questions[idx]
+        user_data['current_q'] = q_data
+        keyboard = [[InlineKeyboardButton(opt, callback_data=f"ans|{opt}")] for opt in q_data['options']]
+        text = f"📝 **Soru {idx + 1}/{len(questions)}**\n\nBu kelimenin anlamı nedir?\n👉 **{q_data['q']}**"
+        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        score = user_data['quiz_score']
+        await query.edit_message_text(text=f"🏁 **Test Bitti!**\n\nSkorun: **{score}/{len(questions)}**\nYeni test için: /quiz", parse_mode="Markdown")
+
+# --- ANA KOMUTLAR ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_name = update.effective_user.first_name
-    await update.message.reply_text(f"Merhaba {user_name}! 👋\nKelimeyi yaz, butonlarla hem anlamını öğren hem de sesini dinle! 🔊")
+    await update.message.reply_text("Merhaba! 👋\n🔹 Kelime yazarak çeviri ve deyimlere bakabilir,\n🔹 /quiz yazarak kendini test edebilirsin!")
+
+async def quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("5 Soru", callback_data="set_5"), InlineKeyboardButton("10 Soru", callback_data="set_10")]]
+    await update.message.reply_text("🧠 Kaç soru çözmek istersin?", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
+    if not update.message.text: return
     word = update.message.text.lower().strip()
-    header_text = f"🔎 **Kelime:** {word.capitalize()}"
-
-    # Butonlar: Sesli Dinle butonu eklendi
-    keyboard = [
-        [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"ceviri|{word}"),
-         InlineKeyboardButton("🔊 Sesli Dinle", callback_data=f"ses|{word}")],
-        [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}"),
-         InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"esanlam|{word}")],
-        [InlineKeyboardButton("📝 Örnek Cümleler", callback_data=f"örnek|{word}")]
-    ]
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(f"{header_text}\nLütfen bir işlem seçin:", reply_markup=reply_markup, parse_mode="Markdown")
+    # Klavye Düzeni: Deyimler butonunu ekledik
+    keyboard = [
+        [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"c|{word}"),
+         InlineKeyboardButton("🔊 Dinle", callback_data=f"s|{word}")],
+        [InlineKeyboardButton("📖 Tanım", callback_data=f"t|{word}"),
+         InlineKeyboardButton("📝 Örnek", callback_data=f"o|{word}")],
+        [InlineKeyboardButton("🔗 Eş Anlam", callback_data=f"e|{word}"),
+         InlineKeyboardButton("🎭 Deyimler", callback_data=f"i|{word}")] # Yeni Buton!
+    ]
+    await update.message.reply_text(f"🔎 **Kelime:** {word.capitalize()}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data.split("|")
-    action, word = data[0], data[1]
-
-    # --- SESLİ TELAFFUZ İŞLEMİ (YENİ) ---
-    if action == "ses":
-        await query.answer("Ses hazırlanıyor... 🎧")
-        try:
-            # Önce kelimeyi İngilizceye çevirelim ki telaffuz İngilizce olsun
-            en_word = GoogleTranslator(source='auto', target='en').translate(word)
-            
-            # Ses dosyasını oluştur
-            tts = gTTS(text=en_word, lang='en')
-            file_name = f"{word}.mp3"
-            tts.save(file_name)
-            
-            # Sesi gönder
-            with open(file_name, 'rb') as audio:
-                await context.bot.send_voice(chat_id=query.message.chat_id, voice=audio)
-            
-            # Geçici dosyayı sil
-            os.remove(file_name)
-        except Exception as e:
-            await context.bot.send_message(chat_id=query.message.chat_id, text="Ses oluşturulurken bir hata oluştu.")
-        return # Ses gönderildikten sonra mesajın güncellenmesine gerek yok
-
+    action = data[0]
     await query.answer()
-    result_content = ""
 
-    # Diğer API işlemleri için hazırlık
-    try:
-        en_res = GoogleTranslator(source='auto', target='en').translate(word).lower()
-        tr_res = GoogleTranslator(source='auto', target='tr').translate(word).lower()
-    except:
-        en_res, tr_res = word, word
+    # Quiz Mantığı
+    if action.startswith("set_"):
+        count = int(action.split("_")[1])
+        await query.edit_message_text("⏳ Hazırlanıyor...")
+        context.user_data['quiz_list'] = await generate_quiz_list(count)
+        context.user_data['quiz_idx'] = 0; context.user_data['quiz_score'] = 0
+        await send_quiz_question(query, context); return
+    if action == "ans":
+        status = "✅ Doğru!" if data[1] == context.user_data['current_q']['a'] else f"❌ Yanlış! (Cevap: {context.user_data['current_q']['a']})"
+        context.user_data['quiz_score'] += (1 if "Doğru" in status else 0); context.user_data['quiz_idx'] += 1
+        await query.edit_message_text(f"{status}\n\nDevam?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("➡️", callback_data="next_q")]]))
+        return
+    if action == "next_q": await send_quiz_question(query, context); return
 
-    if action == "ceviri":
-        result_content = f"🇬🇧 **İngilizce:** {en_res.capitalize()}" if word == tr_res else f"🇹🇷 **Türkçe:** {tr_res.capitalize()}"
+    # Kelime İşlemleri
+    val = data[1]
+    tr_to_en = get_translation(val, "tr", "en")
+    en_to_tr = get_translation(val, "en", "tr")
+    result = ""
+
+    if action == "s": # Ses
+        try:
+            tts = gTTS(text=tr_to_en, lang='en'); tts.save(f"{val}.mp3")
+            with open(f"{val}.mp3", 'rb') as f: await context.bot.send_voice(query.message.chat_id, f)
+            os.remove(f"{val}.mp3")
+        except: pass; return
+
+    elif action == "c": result = f"🇹🇷 **TR:** {en_to_tr.capitalize()}" if val == en_to_tr else f"🇬🇧 **EN:** {tr_to_en.capitalize()}"
     
-    elif action == "tanim" or action == "örnek":
-        try:
-            url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{en_res}"
-            res = requests.get(url, timeout=5)
-            if res.status_code == 200:
-                data = res.json()[0]
-                if action == "tanim":
-                    definition = data['meanings'][0]['definitions'][0]['definition']
-                    result_content = f"📖 **Tanım:** {definition}"
-                else:
-                    example = "Örnek bulunamadı."
-                    for m in data.get('meanings', []):
-                        for d in m.get('definitions', []):
-                            if d.get('example'):
-                                example = d['example']
-                                break
-                    result_content = f"📝 **Örnek Cümle:**\n_{example.capitalize()}_"
-            else: result_content = "Bilgi bulunamadı."
-        except: result_content = "Bağlantı hatası."
+    elif action == "i": # DEYİMLER (Yeni Özellik)
+        idioms = find_idioms(tr_to_en if val != tr_to_en else val)
+        if idioms: result = "\n\n".join(idioms)
+        else: result = "⚠️ Bu kelimeyle ilgili kayıtlı bir deyim bulamadım."
 
-    elif action == "esanlam":
+    elif action in ["t", "o", "e"]: # Tanım, Örnek, Eş Anlam
+        search_word = tr_to_en if val != tr_to_en else val
         try:
-            url = f"https://api.datamuse.com/words?rel_syn={en_res}"
-            res = requests.get(url, timeout=5)
-            items = [item['word'] for item in res.json()[:5]]
-            result_content = f"🔗 **Eş Anlamlılar:** _{', '.join(items)}_" if items else "Bulunamadı."
-        except: result_content = "Hata oluştu."
+            if action == "e":
+                r = requests.get(f"https://api.datamuse.com/words?rel_syn={search_word}")
+                items = [i['word'] for i in r.json()[:5]]
+                result = f"🔗 **Eş Anlamlılar:** {', '.join(items)}" if items else "Bulunamadı."
+            else:
+                r = requests.get(f"https://api.dictionaryapi.dev/api/v2/entries/en/{search_word}")
+                if r.status_code == 200:
+                    d = r.json()[0]
+                    result = f"📖 **Tanım:** {d['meanings'][0]['definitions'][0]['definition']}" if action == "t" else f"📝 **Örnek:** _{d['meanings'][0]['definitions'][0].get('example', 'Örnek yok.')}_"
+                else: result = "Bilgi bulunamadı."
+        except: result = "Hata."
 
-    # Klavye düzenini koru
+    # Butonları tekrar göster
     keyboard = [
-        [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"ceviri|{word}"),
-         InlineKeyboardButton("🔊 Sesli Dinle", callback_data=f"ses|{word}")],
-        [InlineKeyboardButton("📖 İngilizce Tanım", callback_data=f"tanim|{word}"),
-         InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"esanlam|{word}")],
-        [InlineKeyboardButton("📝 Örnek Cümleler", callback_data=f"örnek|{word}")]
+        [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri", callback_data=f"c|{val}"), InlineKeyboardButton("🔊 Dinle", callback_data=f"s|{val}")],
+        [InlineKeyboardButton("📖 Tanım", callback_data=f"t|{val}"), InlineKeyboardButton("📝 Örnek", callback_data=f"o|{val}")],
+        [InlineKeyboardButton("🔗 Eş Anlam", callback_data=f"e|{val}"), InlineKeyboardButton("🎭 Deyimler", callback_data=f"i|{val}")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text=f"🔎 **Kelime:** {word.capitalize()}\n\n{result_content}", reply_markup=reply_markup, parse_mode="Markdown")
+    await query.edit_message_text(text=f"🔎 **Kelime:** {val.capitalize()}\n\n{result}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("quiz", quiz_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_click))
     app.run_polling()

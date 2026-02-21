@@ -12,38 +12,26 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN", "").strip()
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip() 
 
-# --- ÇEVİRİ FONKSİYONU ---
-def get_translation(text, source, target):
-    try:
-        url = f"https://api.mymemory.translated.net/get?q={text}&langpair={source}|{target}"
-        res = requests.get(url, timeout=5)
-        return res.json()["responseData"]["translatedText"].lower() if res.status_code == 200 else text
-    except: return text
-
-# --- AKILLI GOOGLE API BAĞLANTISI ---
-async def fetch_dynamic_idioms(word):
+# --- TEK BİR MERKEZİ YAPAY ZEKA FONKSİYONU ---
+async def ask_gemini(prompt):
     if not GEMINI_KEY:
         return "⚠️ Railway'de GEMINI_API_KEY bulunamadı veya boş."
     
     try:
-        # 1. ADIM: Google'dan menüyü (mevcut modelleri) isteyelim
         list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}"
         r_list = requests.get(list_url, timeout=10)
         
         if r_list.status_code != 200:
-            return f"⚠️ API Anahtarı Hatası (Geçersiz şifre olabilir): {r_list.status_code}"
+            return f"⚠️ API Anahtarı Hatası: {r_list.status_code}"
             
         models = r_list.json().get('models', [])
         chosen_model = None
         
-        # 2. ADIM: Listeden metin üretebilen bir Gemini modeli seçelim
         for m in models:
-            # Önce 1.5-flash'ı arıyoruz
             if 'gemini-1.5-flash' in m['name'] and 'generateContent' in m.get('supportedGenerationMethods', []):
                 chosen_model = m['name']
                 break
                 
-        # Bulamazsa çalışan herhangi bir gemini modelini alsın
         if not chosen_model:
             for m in models:
                 if 'gemini' in m['name'] and 'generateContent' in m.get('supportedGenerationMethods', []):
@@ -51,26 +39,17 @@ async def fetch_dynamic_idioms(word):
                     break
                     
         if not chosen_model:
-            return "⚠️ Hesabınızda metin üretebilen uygun bir model bulunamadı."
+            return "⚠️ Uygun bir model bulunamadı."
 
-        # 3. ADIM: Seçilen kesin doğru isimle deyimleri üretelim
         url = f"https://generativelanguage.googleapis.com/v1beta/{chosen_model}:generateContent?key={GEMINI_KEY}"
         headers = {'Content-Type': 'application/json'}
-        prompt = (
-            f"Bana içinde '{word}' kelimesi geçen 2 İngilizce deyim (idiom) ve 1 İngilizce atasözü (proverb) bul. "
-            "Format kesinlikle şu şekilde olmalı:\n"
-            "🔹 *İngilizce Deyim/Atasözü*\n"
-            "    _Türkçe anlamı_\n\n"
-            "Başka hiçbir açıklama veya giriş cümlesi yazma, sadece bu formatta 3 madde ver."
-        )
-        
         data = {"contents": [{"parts": [{"text": prompt}]}]}
+        
         response = requests.post(url, headers=headers, json=data, timeout=10)
         
         if response.status_code == 200:
             result = response.json()
-            text = result['candidates'][0]['content']['parts'][0]['text'].strip()
-            return "🎭 **Deyimler ve Atasözleri (AI)**\n━━━━━━━━━━━━━━━━━━\n" + text
+            return result['candidates'][0]['content']['parts'][0]['text'].strip()
         else:
             error_msg = response.json().get('error', {}).get('message', 'Bilinmeyen API hatası')
             return f"⚠️ API Hatası ({response.status_code}): {error_msg}"
@@ -78,10 +57,18 @@ async def fetch_dynamic_idioms(word):
     except Exception as e:
         return f"⚠️ Bağlantı hatası: {str(e)}"
 
+# --- SES İÇİN BASİT ÇEVİRİ (Sadece TTS için kullanacağız) ---
+def get_translation(text, source, target):
+    try:
+        url = f"https://api.mymemory.translated.net/get?q={text}&langpair={source}|{target}"
+        res = requests.get(url, timeout=5)
+        return res.json()["responseData"]["translatedText"].lower() if res.status_code == 200 else text
+    except: return text
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
     await update.message.reply_text(
-        f"Merhaba {user}! 👋\nArtık kelimelerin tüm anlamlarını görebilir, eş anlamlılarını bulabilir ve yapay zekadan o an canlı deyimler üretebilirsin.\n\n"
+        f"Merhaba {user}! 👋\nBotun artık %100 Yapay Zeka gücüyle çalışıyor. Kelimeleri bağlamına göre anlar ve asla saçmalamaz!\n\n"
         "Hadi kelime yazarak başla! 👇", parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -89,12 +76,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     word = update.message.text.lower().strip()
     
     keyboard = [
-        [InlineKeyboardButton("🇹🇷/🇬🇧 Tüm Anlamlar", callback_data=f"c|{word}"),
+        [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri & Anlamlar", callback_data=f"c|{word}"),
          InlineKeyboardButton("🔊 Dinle", callback_data=f"s|{word}")],
         [InlineKeyboardButton("📖 Tanım", callback_data=f"t|{word}"),
          InlineKeyboardButton("📝 Örnek", callback_data=f"o|{word}")],
         [InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"e|{word}"),
-         InlineKeyboardButton("🎭 Deyimler (AI)", callback_data=f"i|{word}")]
+         InlineKeyboardButton("🎭 Deyimler", callback_data=f"i|{word}")]
     ]
     
     header = f"🔎 **Kelime:** `{word.capitalize()}`\n━━━━━━━━━━━━━━━━━━\n_Öğrenmek istediğin özelliği seç:_"
@@ -105,52 +92,51 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data.split("|")
     action, val = data[0], data[1]
     
-    if action == "i":
-        await query.answer("🤖 Yapay zeka senin için düşünüyor...")
+    if action != "s":
+        await query.answer("🤖 Asistan düşünüyor...")
     else:
         await query.answer()
 
-    en_to_tr = get_translation(val, "en", "tr")
-    tr_to_en = get_translation(val, "tr", "en")
-    
-    header = f"🔎 **Kelime:** `{val.capitalize()}`\n"
+    header = f"🔎 **Kelime:** `{val.capitalize()}`\n━━━━━━━━━━━━━━━━━━\n"
     content = ""
 
-    # --- TÜM ANLAMLAR ---
+    # --- 1. TÜM ANLAMLAR VE ÇEVİRİ ---
     if action == "c":
-        search_word = val if en_to_tr != val else tr_to_en
-        try:
-            r = requests.get(f"https://api.dictionaryapi.dev/api/v2/entries/en/{search_word}")
-            if r.status_code == 200:
-                data_api = r.json()[0]
-                meanings_list = []
-                for m in data_api['meanings']:
-                    part = m['partOfSpeech']
-                    definition = m['definitions'][0]['definition']
-                    tr_def = get_translation(definition, "en", "tr")
-                    meanings_list.append(f"📍 *{part.capitalize()}:* {tr_def}")
-                content = "📚 **Farklı Anlamları**\n━━━━━━━━━━━━━━━━━━\n" + "\n".join(meanings_list)
-            else:
-                res = en_to_tr if en_to_tr != val else tr_to_en
-                content = f"✨ **Karşılığı:** `{res.capitalize()}`"
-        except: content = "🚫 Bir hata oluştu."
+        prompt = (f"Bana '{val}' kelimesinin net bir çevirisini yap. "
+                  f"Ardından isim, fiil veya sıfat gibi farklı kullanımları varsa maddeler halinde kısaca Türkçe açıkla. "
+                  f"Formatı temiz tut, giriş cümlesi yazma.")
+        content = "📚 **Farklı Anlamları**\n" + await ask_gemini(prompt)
 
-    # --- YAPAY ZEKA DEYİM & ATASÖZÜ ---
-    elif action == "i":
-        search_word = val if en_to_tr != val else tr_to_en
-        content = await fetch_dynamic_idioms(search_word)
+    # --- 2. TANIM ---
+    elif action == "t":
+        prompt = (f"Bana '{val}' kelimesinin ne anlama geldiğini açıklayan net ve kısa bir sözlük tanımı yap. "
+                  f"Eğer verilen kelime Türkçe ise, önce İngilizce karşılığını söyle, sonra o İngilizce kelimenin tanımını Türkçe olarak yap. "
+                  f"Giriş cümlesi yazma.")
+        content = "📖 **Tanım**\n" + await ask_gemini(prompt)
 
-    # --- EŞ ANLAMLILAR ---
+    # --- 3. ÖRNEK CÜMLE ---
+    elif action == "o":
+        prompt = (f"İçinde '{val}' geçen 2 tane örnek cümle kur ve altlarına Türkçe çevirilerini yaz. "
+                  f"Eğer kelime Türkçe ise, o kelimenin İngilizce karşılığını kullanarak İngilizce örnek cümleler kur. "
+                  f"Giriş cümlesi yazma.")
+        content = "📝 **Örnek Cümleler**\n" + await ask_gemini(prompt)
+
+    # --- 4. EŞ ANLAMLILAR ---
     elif action == "e":
-        search_word = val if en_to_tr != val else tr_to_en
-        try:
-            r = requests.get(f"https://api.datamuse.com/words?rel_syn={search_word}")
-            items = [f"`{i['word'].capitalize()}`" for i in r.json()[:5]]
-            content = "🔗 **Eş Anlamlı Kelimeler**\n━━━━━━━━━━━━━━━━━━\n" + ", ".join(items) if items else "Bulunamadı."
-        except: content = "🚫 Bağlantı hatası."
+        prompt = (f"'{val}' kelimesinin en yaygın 3 eş anlamlısını (synonym) listele ve yanlarına Türkçe anlamlarını ekle. "
+                  f"Giriş cümlesi yazma.")
+        content = "🔗 **Eş Anlamlılar**\n" + await ask_gemini(prompt)
 
-    # --- SES DOSYASI ---
+    # --- 5. DEYİMLER ---
+    elif action == "i":
+        prompt = (f"Bana içinde '{val}' kelimesi geçen 2 İngilizce deyim (idiom) ve 1 İngilizce atasözü (proverb) bul. "
+                  f"Format: 🔹 *Deyim/Atasözü* - _Türkçe anlamı_. Başka hiçbir metin yazma.")
+        content = "🎭 **Deyimler ve Atasözleri**\n" + await ask_gemini(prompt)
+
+    # --- 6. SES DİNLEME (Değişmedi) ---
     elif action == "s":
+        en_to_tr = get_translation(val, "en", "tr")
+        tr_to_en = get_translation(val, "tr", "en")
         speak_word = tr_to_en if en_to_tr == val else val
         try:
             tts = gTTS(text=speak_word, lang='en')
@@ -159,33 +145,17 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(f"{val}.mp3"); return
         except: return
 
-    # --- TANIM & ÖRNEK ---
-    elif action in ["t", "o"]:
-        search_word = val if en_to_tr != val else tr_to_en
-        try:
-            r = requests.get(f"https://api.dictionaryapi.dev/api/v2/entries/en/{search_word}")
-            if r.status_code == 200:
-                d = r.json()[0]
-                if action == "t":
-                    content = f"📖 **Tanım:** _{d['meanings'][0]['definitions'][0]['definition']}_"
-                else:
-                    ex = "Örnek bulunamadı."
-                    for m in d.get('meanings', []):
-                        for de in m.get('definitions', []):
-                            if de.get('example'): ex = de['example']; break
-                    content = f"📝 **Örnek:** _“{ex}”_"
-            else: content = "🚫 Bilgi bulunamadı."
-        except: content = "🚫 Bağlantı hatası."
-
-    keyboard = [
-        [InlineKeyboardButton("🇹🇷/🇬🇧 Tüm Anlamlar", callback_data=f"c|{val}"),
-         InlineKeyboardButton("🔊 Dinle", callback_data=f"s|{val}")],
-        [InlineKeyboardButton("📖 Tanım", callback_data=f"t|{val}"),
-         InlineKeyboardButton("📝 Örnek", callback_data=f"o|{val}")],
-        [InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"e|{val}"),
-         InlineKeyboardButton("🎭 Deyimler (AI)", callback_data=f"i|{val}")]
-    ]
-    await query.edit_message_text(text=header + content, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    # Sadece metin içeriği değişen butonlar için mesajı güncelle
+    if action != "s":
+        keyboard = [
+            [InlineKeyboardButton("🇹🇷/🇬🇧 Çeviri & Anlamlar", callback_data=f"c|{val}"),
+             InlineKeyboardButton("🔊 Dinle", callback_data=f"s|{val}")],
+            [InlineKeyboardButton("📖 Tanım", callback_data=f"t|{val}"),
+             InlineKeyboardButton("📝 Örnek", callback_data=f"o|{val}")],
+            [InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"e|{val}"),
+             InlineKeyboardButton("🎭 Deyimler", callback_data=f"i|{val}")]
+        ]
+        await query.edit_message_text(text=header + content, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()

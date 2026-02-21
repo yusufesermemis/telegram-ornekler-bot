@@ -9,7 +9,6 @@ from gtts import gTTS
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 load_dotenv()
-# .strip() komutu, şifrelerin başındaki ve sonundaki yanlışlıkla konmuş boşlukları siler!
 TOKEN = os.getenv("TOKEN", "").strip()
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip() 
 
@@ -21,35 +20,61 @@ def get_translation(text, source, target):
         return res.json()["responseData"]["translatedText"].lower() if res.status_code == 200 else text
     except: return text
 
-# --- DOĞRUDAN GOOGLE API BAĞLANTISI ---
+# --- AKILLI GOOGLE API BAĞLANTISI ---
 async def fetch_dynamic_idioms(word):
     if not GEMINI_KEY:
         return "⚠️ Railway'de GEMINI_API_KEY bulunamadı veya boş."
     
-    # Model ismini en garantili olan '-latest' versiyonuna güncelledik
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_KEY}"
-    headers = {'Content-Type': 'application/json'}
-    
-    prompt = (
-        f"Bana içinde '{word}' kelimesi geçen 2 İngilizce deyim (idiom) ve 1 İngilizce atasözü (proverb) bul. "
-        "Format kesinlikle şu şekilde olmalı:\n"
-        "🔹 *İngilizce Deyim/Atasözü*\n"
-        "    _Türkçe anlamı_\n\n"
-        "Başka hiçbir açıklama veya giriş cümlesi yazma, sadece bu formatta 3 madde ver."
-    )
-    
-    data = {"contents": [{"parts": [{"text": prompt}]}]}
-    
     try:
+        # 1. ADIM: Google'dan menüyü (mevcut modelleri) isteyelim
+        list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}"
+        r_list = requests.get(list_url, timeout=10)
+        
+        if r_list.status_code != 200:
+            return f"⚠️ API Anahtarı Hatası (Geçersiz şifre olabilir): {r_list.status_code}"
+            
+        models = r_list.json().get('models', [])
+        chosen_model = None
+        
+        # 2. ADIM: Listeden metin üretebilen bir Gemini modeli seçelim
+        for m in models:
+            # Önce 1.5-flash'ı arıyoruz
+            if 'gemini-1.5-flash' in m['name'] and 'generateContent' in m.get('supportedGenerationMethods', []):
+                chosen_model = m['name']
+                break
+                
+        # Bulamazsa çalışan herhangi bir gemini modelini alsın
+        if not chosen_model:
+            for m in models:
+                if 'gemini' in m['name'] and 'generateContent' in m.get('supportedGenerationMethods', []):
+                    chosen_model = m['name']
+                    break
+                    
+        if not chosen_model:
+            return "⚠️ Hesabınızda metin üretebilen uygun bir model bulunamadı."
+
+        # 3. ADIM: Seçilen kesin doğru isimle deyimleri üretelim
+        url = f"https://generativelanguage.googleapis.com/v1beta/{chosen_model}:generateContent?key={GEMINI_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        prompt = (
+            f"Bana içinde '{word}' kelimesi geçen 2 İngilizce deyim (idiom) ve 1 İngilizce atasözü (proverb) bul. "
+            "Format kesinlikle şu şekilde olmalı:\n"
+            "🔹 *İngilizce Deyim/Atasözü*\n"
+            "    _Türkçe anlamı_\n\n"
+            "Başka hiçbir açıklama veya giriş cümlesi yazma, sadece bu formatta 3 madde ver."
+        )
+        
+        data = {"contents": [{"parts": [{"text": prompt}]}]}
         response = requests.post(url, headers=headers, json=data, timeout=10)
+        
         if response.status_code == 200:
             result = response.json()
             text = result['candidates'][0]['content']['parts'][0]['text'].strip()
             return "🎭 **Deyimler ve Atasözleri (AI)**\n━━━━━━━━━━━━━━━━━━\n" + text
         else:
-            # Artık 404 verirse sadece "yanıt vermedi" demeyecek, Google'ın asıl hata mesajını ekrana basacak
             error_msg = response.json().get('error', {}).get('message', 'Bilinmeyen API hatası')
-            return f"⚠️ Hata Kodu {response.status_code}: {error_msg}"
+            return f"⚠️ API Hatası ({response.status_code}): {error_msg}"
+            
     except Exception as e:
         return f"⚠️ Bağlantı hatası: {str(e)}"
 

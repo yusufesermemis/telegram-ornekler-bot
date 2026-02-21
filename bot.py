@@ -10,7 +10,6 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
-# Railway'deki değişken isminle aynı olmalı
 GEMINI_KEY = os.getenv("GEMINI_API_KEY") 
 
 # --- ÇEVİRİ FONKSİYONU ---
@@ -21,16 +20,14 @@ def get_translation(text, source, target):
         return res.json()["responseData"]["translatedText"].lower() if res.status_code == 200 else text
     except: return text
 
-# --- DOĞRUDAN GOOGLE API BAĞLANTISI (KÜTÜPHANESİZ) ---
+# --- DOĞRUDAN GOOGLE API BAĞLANTISI ---
 async def fetch_dynamic_idioms(word):
     if not GEMINI_KEY:
         return "⚠️ Railway'de GEMINI_API_KEY bulunamadı."
     
-    # Gemini 1.5 Flash API'sine doğrudan istek atıyoruz
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     headers = {'Content-Type': 'application/json'}
     
-    # Yapay zekaya kesin bir format emri veriyoruz
     prompt = (
         f"Bana içinde '{word}' kelimesi geçen 2 İngilizce deyim (idiom) ve 1 İngilizce atasözü (proverb) bul. "
         "Format kesinlikle şu şekilde olmalı:\n"
@@ -45,7 +42,6 @@ async def fetch_dynamic_idioms(word):
         response = requests.post(url, headers=headers, json=data, timeout=10)
         if response.status_code == 200:
             result = response.json()
-            # Yapay zekanın ürettiği metni alıyoruz
             text = result['candidates'][0]['content']['parts'][0]['text'].strip()
             return "🎭 **Deyimler ve Atasözleri (AI)**\n━━━━━━━━━━━━━━━━━━\n" + text
         else:
@@ -56,7 +52,7 @@ async def fetch_dynamic_idioms(word):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
     await update.message.reply_text(
-        f"Merhaba {user}! 👋\nArtık kelimelerin tüm anlamlarını görebilir ve yapay zekadan o an canlı deyimler/atasözleri üretebilirsin.\n\n"
+        f"Merhaba {user}! 👋\nArtık kelimelerin tüm anlamlarını görebilir, eş anlamlılarını bulabilir ve yapay zekadan o an canlı deyimler üretebilirsin.\n\n"
         "Hadi kelime yazarak başla! 👇", parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -68,7 +64,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("🔊 Dinle", callback_data=f"s|{word}")],
         [InlineKeyboardButton("📖 Tanım", callback_data=f"t|{word}"),
          InlineKeyboardButton("📝 Örnek", callback_data=f"o|{word}")],
-        [InlineKeyboardButton("🎭 Deyimler & Atasözleri", callback_data=f"i|{word}")]
+        [InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"e|{word}"),
+         InlineKeyboardButton("🎭 Deyimler (AI)", callback_data=f"i|{word}")]
     ]
     
     header = f"🔎 **Kelime:** `{word.capitalize()}`\n━━━━━━━━━━━━━━━━━━\n_Öğrenmek istediğin özelliği seç:_"
@@ -109,10 +106,19 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 content = f"✨ **Karşılığı:** `{res.capitalize()}`"
         except: content = "🚫 Bir hata oluştu."
 
-    # --- YAPAY ZEKA DEYİM & ATASÖZÜ (DİNAMİK) ---
+    # --- YAPAY ZEKA DEYİM & ATASÖZÜ ---
     elif action == "i":
         search_word = val if en_to_tr != val else tr_to_en
         content = await fetch_dynamic_idioms(search_word)
+
+    # --- EŞ ANLAMLILAR ---
+    elif action == "e":
+        search_word = val if en_to_tr != val else tr_to_en
+        try:
+            r = requests.get(f"https://api.datamuse.com/words?rel_syn={search_word}")
+            items = [f"`{i['word'].capitalize()}`" for i in r.json()[:5]]
+            content = "🔗 **Eş Anlamlı Kelimeler**\n━━━━━━━━━━━━━━━━━━\n" + ", ".join(items) if items else "Bulunamadı."
+        except: content = "🚫 Bağlantı hatası."
 
     # --- SES DOSYASI ---
     elif action == "s":
@@ -147,7 +153,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("🔊 Dinle", callback_data=f"s|{val}")],
         [InlineKeyboardButton("📖 Tanım", callback_data=f"t|{val}"),
          InlineKeyboardButton("📝 Örnek", callback_data=f"o|{val}")],
-        [InlineKeyboardButton("🎭 Deyimler & Atasözleri", callback_data=f"i|{val}")]
+        [InlineKeyboardButton("🔗 Eş Anlamlılar", callback_data=f"e|{val}"),
+         InlineKeyboardButton("🎭 Deyimler (AI)", callback_data=f"i|{val}")]
     ]
     await query.edit_message_text(text=header + content, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 

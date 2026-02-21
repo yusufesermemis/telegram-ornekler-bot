@@ -9,8 +9,9 @@ from gtts import gTTS
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 load_dotenv()
-TOKEN = os.getenv("TOKEN")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY") 
+# .strip() komutu, şifrelerin başındaki ve sonundaki yanlışlıkla konmuş boşlukları siler!
+TOKEN = os.getenv("TOKEN", "").strip()
+GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip() 
 
 # --- ÇEVİRİ FONKSİYONU ---
 def get_translation(text, source, target):
@@ -23,9 +24,10 @@ def get_translation(text, source, target):
 # --- DOĞRUDAN GOOGLE API BAĞLANTISI ---
 async def fetch_dynamic_idioms(word):
     if not GEMINI_KEY:
-        return "⚠️ Railway'de GEMINI_API_KEY bulunamadı."
+        return "⚠️ Railway'de GEMINI_API_KEY bulunamadı veya boş."
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    # Model ismini en garantili olan '-latest' versiyonuna güncelledik
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_KEY}"
     headers = {'Content-Type': 'application/json'}
     
     prompt = (
@@ -45,7 +47,9 @@ async def fetch_dynamic_idioms(word):
             text = result['candidates'][0]['content']['parts'][0]['text'].strip()
             return "🎭 **Deyimler ve Atasözleri (AI)**\n━━━━━━━━━━━━━━━━━━\n" + text
         else:
-            return f"⚠️ API Hatası: {response.status_code} - Model yanıt vermedi."
+            # Artık 404 verirse sadece "yanıt vermedi" demeyecek, Google'ın asıl hata mesajını ekrana basacak
+            error_msg = response.json().get('error', {}).get('message', 'Bilinmeyen API hatası')
+            return f"⚠️ Hata Kodu {response.status_code}: {error_msg}"
     except Exception as e:
         return f"⚠️ Bağlantı hatası: {str(e)}"
 
